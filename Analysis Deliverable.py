@@ -17,9 +17,8 @@ import numpy as np
 import csv
 from google.colab import drive
 
-# %matplotlib inline
-import matplotlib.pyplot as plt
 
+import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import MinMaxScaler
@@ -34,6 +33,7 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn import metrics
 from sklearn import preprocessing
 from sklearn.metrics import confusion_matrix, r2_score, mean_squared_error
+from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 import statsmodels.api as sm
 from yellowbrick.regressor import PredictionError
@@ -71,7 +71,6 @@ ds.iloc[173, ds.columns.get_loc('Pos')] = 'SG'
 
 
 # Searching for anomalies
-
 anomaly_1 = ds.loc[ds['Pos'] == 'C-PF']
 anomaly_2 = ds.loc[ds['Pos'] == 'PF-SF']
 anomaly_3 = ds.loc[ds['Pos'] == 'SF-SG']
@@ -82,113 +81,71 @@ anomalies
 
 """Exploratory Data Analysis"""
 
-ds.head(10)
-
-# Count number of players in each position
-
-ds.groupby('Pos').Pos.count()
-
 # Gives descriptive statistics on each metric
-
 ds.describe()
 
-ds.info()
-
-plt.figure(figsize=(10,10))
-b_plot = sns.boxplot(data = ds['2018_2019_Salary'], orient = "h", palette = "colorblind")
-
 # View all possible variable correlations with Salary
-
 correlation = ds.corr().sort_values(by='2018_2019_Salary', ascending=False)
 correlation['2018_2019_Salary']
 
-# Scatter plot
 
-ds.plot.scatter(x = 'PTS', y = '2018_2019_Salary')
-plt.xlabel('Points Scored')
-plt.ylabel('2018-2019 Salary')
-plt.title('Distribution of NBA Player Salary')
+"""Variable Correlation Plot"""
+
+#View all possible variable correlations with Salary
+correlation = ds.corr(method='pearson', min_periods=1)
+rs_val = correlation**2
+
+#Generating heatmap of peason correlation values
+plt.figure(figsize=(12, 12))
+corrplot(correlation, size_scale=300)
+plt.title("Heatmap 1 – Pearson Correlation", x=-8, y=1)
 plt.show()
 
-plt.savefig('Distribution of NBA Player Salary.png', bbox_inches='tight')
 
-# Scatter plot by position
 
-position_color = {'PG': 'r', 'SG': 'g', 'SF': 'b', 'PF': 'y', 'C': 'm'}
-player_positions = [position_color[p] for p in ds.Pos]
-ds.plot.scatter(x = 'PTS', y = '2018_2019_Salary', c = player_positions)
-plt.xlabel('Points Scored')
-plt.ylabel('2018-2019 Salary')
-plt.title('Distribution of NBA Player Salary By Position')
+"""Top 8 variables"""
+
+#Finding the top 8 variables with the highest correaltion with salary 
+num_vals = 9
+larg = rs_val.nlargest(num_vals, '2018_2019_Salary')['2018_2019_Salary']
+c = larg.index
+csquared_val = ds[c].corr()**2
+
+#generating heatmap of top 8 features correlated with salary
+f, ax = plt.subplots(figsize=(12, 12))
+sns.set(font_scale=1)
+
+#Removing the upper triangle 
+mask = np.zeros(csquared_val.shape, dtype=np.bool)
+mask[np.triu_indices_from(mask)]= True
+
+hm = sns.heatmap(csquared_val, cbar=True, annot=True, square=True,fmt='.2f', annot_kws={'size': 15}, yticklabels=c.values, xticklabels=c.values, mask = mask)
+plt.title("Heatmap with the top 8 variables most correlated with salary", x=0.5, y=0)
 plt.show()
 
-"""Simple Linear Regression"""
-
-ds.plot(x='PTS', y='2018_2019_Salary', style='o')  
-plt.title('PTS vs 2018_2019_Salary')  
-plt.xlabel('PTS')  
-plt.ylabel('2018_2019_Salary')  
+# Pairplots(Not used in Deliverable)
+sns.set()
+sns.pairplot(ds[['2018_2019_Salary', 'PTS', 'FGA','FG', 'FT', 'MP', 'FTA', 'TOV', '2PA']], height = 2.5)
 plt.show()
 
-plt.figure(figsize=(15,10))
-plt.tight_layout()
-plt.title('Average salary')  
-sns.distplot(ds['2018_2019_Salary'])
+#Multi-collinearity analysis with use of VIF 
 
-X = ds['PTS'].values.reshape(-1,1)
-y = ds['2018_2019_Salary'].values.reshape(-1,1)
+features = ds[['PTS', 'FGA','FG', 'FT', 'MP', 'FTA', 'TOV', '2PA']]
+vif = pd.DataFrame()
+vif["VIF Factor"] = [variance_inflation_factor(features.values, i) for i in range(features.shape[1])]
+vif["features"] = features.columns
+vif.round(1)
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=0)
+#Eliminate FGA, FG and FTA and check if VIF changes
+feat = ds[['PTS', 'FT', 'MP', 'TOV', '2PA']]
+vif1 = pd.DataFrame()
+vif1["VIF Factor"] = [variance_inflation_factor(feat.values, i) for i in range(feat.shape[1])]
+vif1["features"] = feat.columns
+vif1.round(1)
 
-regressor = LinearRegression()  
-regressor.fit(X_train, y_train) #training the algorithm
-
-#To retrieve the intercept:
-print(regressor.intercept_)
-#For retrieving the slope:
-print(regressor.coef_)
-
-y_pred = regressor.predict(X_test)
-
-df = pd.DataFrame({'Actual': y_test.flatten(), 'Predicted': y_pred.flatten()})
-df
-
-df1 = df.head(475)
-df1.plot(kind='bar',figsize=(30,10))
-plt.title('Simple Regression: Actual vs Predicted')  
-plt.grid(which='major', linestyle='-', linewidth='0.5', color='green')
-plt.grid(which='minor', linestyle=':', linewidth='0.5', color='black')
-plt.show()
-
-plt.scatter(X_test, y_test,  color='gray')
-plt.plot(X_test, y_pred, color='red', linewidth=2)
-plt.xlabel('Test Data')  
-plt.ylabel('Prediction')  
-plt.show()
-
-print('Mean Absolute Error:', metrics.mean_absolute_error(y_test, y_pred))  
-print('Mean Squared Error:x', metrics.mean_squared_error(y_test, y_pred))  
-print('Root Mean Squared Error:', np.sqrt(metrics.mean_squared_error(y_test, y_pred)))
-
-X = sm.add_constant(X) # adding a constant
- 
-model = sm.OLS(y, X).fit()
-predictions = model.predict(X) 
- 
-print_model = model.summary()
-print(print_model)
-
-# prediction with sklearn
-points_scored = 30
-
-print ('Predicted Salary: \n', regressor.predict([[points_scored]]))
 
 """## Multiple Linear Regression"""
 
-# Multiple Linear Regression
-#X = ds[['Age', 'G', 'GS', 'MP', 'FG', 'FGA', 'FG%', '3P', '3PA', '3P%', '2P', '2PA', '2P%', 'eFG%', 'FT', 'FTA', 'FT%', 'ORB', 'DRB', 'TRB', 'AST', 'STL', 'BLK', 'TOV', 'PF', 'PTS']]
-#X = ds[['PTS', 'FT', 'MP', 'FTA', 'TOV', '2PA', '2P']] #the real one
-#X = ds[['PTS', 'FG', 'FGA', 'FT', 'MP', 'FTA', 'TOV']]
 X = ds[['PTS', 'FT', 'MP', 'TOV', '2P']]
 y = ds['2018_2019_Salary'].values
 
@@ -196,6 +153,7 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_
 print(X_test.shape)
 print(y_test.shape)
 
+#Scaling data
 sc = preprocessing.RobustScaler()
 X_train = sc.fit_transform(X_train)
 X_test = sc.transform(X_test)
@@ -210,8 +168,8 @@ y_pred = regressor.predict(X_test)
 y_pred_train = regressor.predict(X_train)
 
 df = pd.DataFrame({'Actual': y_test, 'Predicted': y_pred})
-df
 
+#Generating Bar Graph of Actual Salary vs Predicted Salary 
 df = df.sample(n=50)
 df.plot(kind='bar',figsize=(30,8))
 plt.title('Multiple Regression: Actual Salary vs Predicted Salary')
@@ -221,6 +179,7 @@ plt.xlabel('Player Index from Test Dataset')
 plt.ylabel('Salary')  
 plt.show()
 
+#Generating Scatter Plot of Actual vs Predicted salary with regression line
 plt.figure(figsize=(10,10))
 plt.scatter(y_test, y_pred)
 plt.plot(np.unique(y_test), np.poly1d(np.polyfit(y_test, y_pred, 1))(np.unique(y_test)), c = 'r')
@@ -228,6 +187,7 @@ plt.xlabel("Actual Salary")
 plt.ylabel("Predicted Salary")
 plt.title("Multiple Regression: Predicted Salary vs Actual Salary")
 
+#Evaulation Metrics Calculation
 r_2 = round((r2_score(y_test, y_pred)),3)
 adj_r_2 = (1 - (1 - r_2) * ((X_train.shape[0] - 1) / 
           (X_train.shape[0] - X_train.shape[1] - 1)))
@@ -246,87 +206,9 @@ print('Normalised Root Mean Squared Error Train:', np.sqrt(metrics.mean_squared_
 print('R-Squared value: ', r_2)
 print('Adjusted R-Squared value: ', adj_r_2)
 
-X = sm.add_constant(X) # adding a constant
- 
-model = sm.OLS(y, X).fit()
-predictions = model.predict(X) 
- 
-print_model = model.summary()
-print(print_model)
-
-# prediction with sklearn
-points_scored = 5
-free_throws = 0.7
-minutes_played = 18
-turnovers = 0.8
-two_point = 1.4
-
-print ('Predicted Salary: \n', regressor.predict([[points_scored ,free_throws, minutes_played, turnovers, two_point]]))
-
-
-
-"""Variable Correlation Plot"""
-
-# View all possible variable correlations with Salary
-
-correlation = ds.corr(method='pearson', min_periods=1)
-rs_val = correlation**2
-plt.figure(figsize=(12, 12))
-corrplot(correlation, size_scale=300)
-plt.title("Heatmap 1– Pearson Correlation", x=-8, y=1)
-plt.show()
-
-#correlation['2018_2019_Salary']
-
-"""Top 10 variables"""
-
-num_vals = 9
-larg = rs_val.nlargest(num_vals, '2018_2019_Salary')['2018_2019_Salary']
-c = larg.index
-csquared_val = ds[c].corr()**2
-f, ax = plt.subplots(figsize=(12, 12))
-
-sns.set(font_scale=1)
-
-mask = np.zeros(csquared_val.shape, dtype=np.bool)
-mask[np.triu_indices_from(mask)]= True
-
-hm = sns.heatmap(csquared_val, cbar=True, annot=True, square=True,fmt='.2f', annot_kws={'size': 15}, yticklabels=c.values, xticklabels=c.values, mask = mask)
-plt.title("Heatmap with the top 8 variables most correlated with salary", x=0.5, y=0)
-plt.show()
-
-# Pairplots
-
-sns.set()
-sns.pairplot(ds[['2018_2019_Salary', 'PTS', 'FGA','FG', 'FT', 'MP', 'FTA', 'TOV', '2PA']], height = 2.5)
-plt.show()
-
-features = ds[['PTS', 'FGA','FG', 'FT', 'MP', 'FTA', 'TOV', '2PA']]
-
-from statsmodels.stats.outliers_influence import variance_inflation_factor
-vif = pd.DataFrame()
-vif["VIF Factor"] = [variance_inflation_factor(features.values, i) for i in range(features.shape[1])]
-vif["features"] = features.columns
-vif.round(1)
-
-feat = ds[['PTS', 'FT', 'MP', 'TOV', '2PA']]
-
-vif1 = pd.DataFrame()
-vif1["VIF Factor"] = [variance_inflation_factor(feat.values, i) for i in range(feat.shape[1])]
-vif1["features"] = feat.columns
-vif1.round(1)
-
 """Random Forest"""
 
-#random forest
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import RandomForestRegressor
-from sklearn import metrics
-from sklearn.linear_model import LinearRegression
-
-
-
+#random forest implementation
 X_r = ds[['PTS', 'FT', 'MP', 'TOV', '2PA']].values
 y_r = ds['2018_2019_Salary'].values
 
@@ -341,27 +223,52 @@ scale = preprocessing.RobustScaler()
 X_tr = scale.fit_transform(X_tr)
 X_te = scale.transform(X_te)
 
-#Parameter Tuning
-tuned_parameters = [{'max_depth': [1,2,3,4,5,10, 15, 20, 50, 70], 'n_estimators': [10, 25, 50, 100, 125,150, 200, 225, 250, 300, 350, 400, 450, 500]}]
-MSE_rf = ['mean_squared_error(y_te, y_pred5)']
-for value in MSE_rf:
-    regr_rf = GridSearchCV(RandomForestRegressor(), tuned_parameters, cv=4)
-    regr_rf.fit(X_tr, y_tr)
-    y_true, y_pred5 = y_te, regr_rf.predict(X_te)
+#HyperParameter Tuning to find max_depth and n_Estimators
+tune_params = [{'max_depth': [1,2,3,4,5,10, 15, 20, 50, 70], 'n_estimators': [10, 25, 50, 100, 125,150, 200, 225, 250, 300, 350, 400, 450, 500]}]
+MSE_tune = ['mean_squared_error(y_te, y_predict)']
+for val in MSE_tune:
+    regr_tune = GridSearchCV(RandomForestRegressor(), tune_params, cv=4)
+    regr_tune.fit(X_tr, y_tr)
+    y_true_rf, y_predict = y_te, regr__tune.predict(X_te)
 
-print('The best hyper-parameters for Random Forests are: ',regr_rf.best_params_)
+print('The best hyper-parameters for Random Forests are: ',regr_tune.best_params_)
 
+#Fitting and predicting 
 reg = RandomForestRegressor(max_depth = 2, random_state=0, n_estimators=250)
 reg.fit(X_tr, y_tr)
 y_p = reg.predict(X_te)
 y_p_tr = reg.predict(X_tr)
 
+#Checking for feature importance 
 X_tr = pd.DataFrame(X_tr)
 feature_importances = pd.DataFrame(reg.feature_importances_,
                                    index = X_tr.columns,
                                     columns=['importance']).sort_values('importance', ascending=False)
 print(feature_importances)
 
+
+#Creating bar graph of Actual vs Predicted Salary 
+df = pd.DataFrame({'Actual': y_te.flatten(), 'Predicted': y_p.flatten()})
+df1 = df.sample(n=50)
+df1.plot(kind='bar',figsize=(32,10))
+plt.title('Random Forest: Actual Salary vs Predicted Salary')  
+plt.grid(which='major', linestyle='-', linewidth='0.5', color='green')
+plt.grid(which='minor', linestyle=':', linewidth='0.5', color='black')
+plt.xlabel('Player Index from Test Dataset')  
+plt.ylabel('Salary')  
+plt.show()
+
+
+#Plotting scatter plot of actual vs predicted salary with regression line
+plt.figure(figsize=(10,10))
+plt.scatter(y_te, y_p)
+plt.plot(np.unique(y_te), np.poly1d(np.polyfit(y_te, y_p, 1))(np.unique(y_te)), c = 'r')
+plt.xlabel("Actual Salary")
+plt.ylabel("Predicted Salary")
+plt.title("Random Forest: Predicted Salary vs Actual Salary")
+
+
+#Calculation of Evaluation Metrics
 r_2_random = reg.score(X_te, y_te)
 adj_r_2_random = (1 - (1 - r_2_random) * ((X_tr.shape[0] - 1) / 
           (X_tr.shape[0] - X_tr.shape[1] - 1)))
@@ -380,49 +287,10 @@ print('Normalised Root Mean Squared Error Train:', np.sqrt(metrics.mean_squared_
 print('R-Squared Value: ', r_2_random)
 print('Adjusted R-Squared Value: ', adj_r_2_random)
 
-plt.figure(figsize=(10,10))
-plt.scatter(y_te, y_p)
-plt.plot(np.unique(y_te), np.poly1d(np.polyfit(y_te, y_p, 1))(np.unique(y_te)), c = 'r')
-plt.xlabel("Actual Salary")
-plt.ylabel("Predicted Salary")
-plt.title("Random Forest: Predicted Salary vs Actual Salary")
 
-df = pd.DataFrame({'Actual': y_te.flatten(), 'Predicted': y_p.flatten()})
 
-df1 = df.sample(n=50)
 
-df1.plot(kind='bar',figsize=(32,10))
-plt.title('Random Forest: Actual Salary vs Predicted Salary')  
-plt.grid(which='major', linestyle='-', linewidth='0.5', color='green')
-plt.grid(which='minor', linestyle=':', linewidth='0.5', color='black')
-plt.xlabel('Player Index from Test Dataset')  
-plt.ylabel('Salary')  
-plt.show()
-
-X_r1 = ds[['Age', 'G', 'GS', 'MP', 'FG', 'FGA', 'FG%', '3P', '3PA', '3P%', '2P', '2PA', '2P%', 'eFG%', 'FT', 'FTA', 'FT%', 'ORB', 'DRB', 'TRB', 'AST', 'STL', 'BLK', 'TOV', 'PF', 'PTS']].values
-y_r1 = ds['2018_2019_Salary'].values
-
-X_tr1, X_te1, y_tr1, y_te1 = train_test_split(X_r1, y_r1, test_size=0.20, random_state=0)
-
-print(X_tr.shape)
-print(X_te.shape)
-print(y_tr.shape)
-print(y_te.shape)
-
-scale = preprocessing.RobustScaler()
-X_tr = scale.fit_transform(X_tr)
-X_te = scale.transform(X_te)
-
-tuned_param = [{'max_depth': [1,2,3,4,5,10, 15, 20, 50, 70], 'n_estimators': [10, 25, 50, 100, 125,150, 200, 225, 250, 300, 350, 400, 450, 500]}]
-MSE_r = ['mean_squared_error(y_test, y_pred5)']
-for value in MSE_rf:
-    regr_rf = GridSearchCV(RandomForestRegressor(), tuned_parameters, cv=4)
-    regr_rf.fit(X_tr, y_tr)
-    y_true, y_pred5 = y_te, regr_rf.predict(X_te)
-    
-print('The best hyper-parameters for Random Forests are: ',regr_rf.best_params_)
-
-"""Histograms with Top 7 Variables"""
+"""Histograms with Top 5 Variables"""
 
 # PTS
 
@@ -472,22 +340,6 @@ plt.xlabel('Minutes Played Per Game')
 plt.title('Probability Density Distribution of NBA Player Minutes Played Per Game')
 plt.show()
 
-# FTA
-
-ds['FTA'].plot.hist()
-plt.xlim(0)
-plt.xlabel('Free Throw Attempts Per Game')
-plt.ylabel('Number of Players')
-plt.title('Distribution of NBA Player Free Throw Attempts Per Game')
-plt.show()
-
-ds['FTA'].plot.hist(density=True)
-ds['FTA'].plot.density()
-plt.xlim(0)
-plt.xlabel('Free Throw Attempts Per Game')
-plt.title('Probability Density Distribution of NBA Player Free Throw Attempts Per Game')
-plt.show()
-
 # TOV
 
 ds['TOV'].plot.hist()
@@ -519,29 +371,3 @@ plt.xlim(0)
 plt.xlabel('2-Point Attempts Per Game')
 plt.title('Probability Density Distribution of NBA Player 2-Point Attempts Per Game')
 plt.show()
-
-# 2P
-
-ds['2P'].plot.hist()
-plt.xlim(0)
-plt.xlabel('2-Pointers Per Game')
-plt.ylabel('Number of Players')
-plt.title('Distribution of NBA Player 2-Pointers Per Game')
-plt.show()
-
-ds['2P'].plot.hist(density=True)
-ds['2P'].plot.density()
-plt.xlim(0)
-plt.xlabel('2-Pointers Per Game')
-plt.title('Probability Density Distribution of NBA Player 2-Pointers Per Game')
-plt.show()
-
-
-
-"""Tuned Multiple Regression"""
-
-X_tune = ds[['Age', 'G', 'GS', 'MP', 'FG', 'FGA', 'FG%', '3P', '3PA', '3P%', '2P', '2PA', '2P%', 'eFG%', 'FT', 'FTA', 'FT%', 'ORB', 'DRB', 'TRB', 'AST', 'STL', 'BLK', 'TOV', 'PF', 'PTS']]
-y_tune = ds['2018_2019_Salary']
-X_train1, X_test1, y_train1, y_test1 = train_test_split(X, y, test_size=0.2, random_state=1)
-
-reg_tune = LinearRegression()
